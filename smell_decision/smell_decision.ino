@@ -175,12 +175,10 @@ void loop() {
   /** BLE通信処理 **/
   //通知する値の変更
   if (deviceConnected) {    //接続中
-    rgb(100, 100, 100);
     sendvalue = val;
     pCharacteristic->setValue(sendvalue);   // においデータの送信
     if (!deviceConnected) ble();
   } else {                  //接続待ち
-    rgb(255, 0, 0);
     pCharacteristic->setValue(failvalue);
   }
 
@@ -192,9 +190,8 @@ void loop() {
     delay(500);
     pServer->startAdvertising();
     oldDeviceConnected = deviceConnected;
-    rgb(0, 255, 0);         //アドバタイジング開始
   }
-  
+
   if (deviceConnected && !oldDeviceConnected) {
     oldDeviceConnected = deviceConnected;
   }
