@@ -23,10 +23,10 @@ BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 int sendvalue = 0;
-int failvalue = 9;
+int failvalue = -1;
 
 
-// BLEコールバック
+// BLE callback
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
@@ -117,32 +117,35 @@ void loop() {
   static int count = 0;
   static int dcount = 0;
 
+  //センサ情報を100点満点に換算
   float degital_val = (static_cast<float>(val)/4095)*100;
 
-  digitalWrite(PIN_HEATER, LOW);  // Heater On
+  //ヒーターの加熱処理
+  //においセンサ内の状態をリセットするために加熱処理を施す
+  digitalWrite(PIN_HEATER, LOW);
   //ウォームアップ時間短縮
-  if(degital_val < 60.0 && !flag){
-    Serial.println("warmup");
-    delay(100);
-  }else{
-    delay(8);
-  }
+  //起動時に約30分の加熱時間を要する為無理やり短縮させている
+  //60点以上が5回続くと推奨値に戻す
+  if(degital_val < 60.0 && !flag) delay(100);
+  else delay(8);
 
-  digitalWrite(PIN_HEATER, HIGH);  // Heater Off
-  delay(237);
+  digitalWrite(PIN_HEATER, HIGH);   // Heater Off
+  delay(237);                       // 次の処理のために間をあける
 
+  //においセンサを起動し値を読み取る
   digitalWrite(PIN_SENSOR, HIGH);  // Sensor Pullup On
   delay(1);
   val = analogRead(PIN_INPUT);  // Get Sensor Voltage
-//  delay(2);
+  delay(2);
   digitalWrite(PIN_SENSOR, LOW);  // Sensor Pullup Off
 
-
+  //値送信用
   sum += val;
   count++;
+
+  //それぞれカウント数によって処理をする
   if (count == 10) {
-    //Serial.println(sum/count);
-    // においセンサの取得値を100点変換して表示する
+    // においセンサの取得平均値を100点変換して表示する
     float smell = (static_cast<float>(sum/count)/4095)*100;
     Serial.println(smell);
     sum = 0;
@@ -170,37 +173,29 @@ void loop() {
   // }
   
   /** BLE通信処理 **/
-  // notify changed value
-  if (deviceConnected) {
-    //Serial.println("接続中です。");
+  //通知する値の変更
+  if (deviceConnected) {    //接続中
     rgb(100, 100, 100);
     sendvalue = val;
     pCharacteristic->setValue(sendvalue);   // においデータの送信
-    if (!deviceConnected) {
-      ble();
-    }
-  } else {
-    //Serial.println("接続待ちです。");
+    if (!deviceConnected) ble();
+  } else {                  //接続待ち
     rgb(255, 0, 0);
-    //rgb(255, 0, 0);
-    //digitalWrite(ledPin, LOW);
     pCharacteristic->setValue(failvalue);
   }
 
+  //通知を送る
   pCharacteristic->notify();
 
-  // disconnecting
+  //通信が切断されたときの処理
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);
     pServer->startAdvertising();
-    //Serial.println("アドバタイジング開始");
     oldDeviceConnected = deviceConnected;
-    rgb(0, 255, 0);
+    rgb(0, 255, 0);         //アドバタイジング開始
   }
+  
   if (deviceConnected && !oldDeviceConnected) {
     oldDeviceConnected = deviceConnected;
   }
-
-
-  //delay(1000);
 }
