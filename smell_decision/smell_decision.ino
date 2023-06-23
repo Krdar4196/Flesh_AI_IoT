@@ -9,6 +9,9 @@
 #define PIN_SENSOR 15  // D15(A1)
 #define PIN_INPUT 39  // Corresponds to Arduino Uno's A3
 
+// LEDのピン宣言
+//#define LED 14
+
 // RGB LEDのピン宣言
 uint8_t ledR = 25;
 uint8_t ledG = 26;
@@ -86,22 +89,35 @@ void setup() {
   //Serial.begin(9600);
   Serial.begin(115200);
 
+  // 以下3つのconfigはデフォルト値なので省略しても良い
+  // Deep Sleep中にPull Up を保持するために
+  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+  // // Deep Sleep中にメモリを保持するために
+  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
+  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_ON);
+
+  //deepsleep用ボタンをピンに対応する
+  //pinMode(GPIO_NUM_16, INPUT_PULLUP);
+
   // においセンサーを各ピンに対応する
   pinMode(PIN_HEATER, OUTPUT);
   pinMode(PIN_SENSOR, OUTPUT);
-  pinMode(PIN_INPUT, OUTPUT);
   
   digitalWrite(PIN_HEATER, HIGH);  // Heater Off
   digitalWrite(PIN_SENSOR, LOW);   // Sensor Pullup Off
+
+  //LEDをピンに対応する
+  //pinMode(LED, OUTPUT);
+
+  // 12 kHz PWM, 8-bit 宣言
+  ledcSetup(1, 12000, 8);
+  ledcSetup(2, 12000, 8);
+  ledcSetup(3, 12000, 8);
 
   // RGB LEDを各ピンに対応する
   ledcAttachPin(ledR, 1);
   ledcAttachPin(ledG, 2);
   ledcAttachPin(ledB, 3);
-  // 12 kHz PWM, 8-bit 宣言
-  ledcSetup(1, 12000, 8);
-  ledcSetup(2, 12000, 8);
-  ledcSetup(3, 12000, 8);
 
   ble();  //BLE処理全般を任せる
 }
@@ -109,13 +125,14 @@ void setup() {
 
 void loop() {
 
+  //int sleep = digitalRead( GPIO_NUM_16 );
+
   /** においセンサー処理 **/
   static bool flag = false;
   static int fcount = 0;
   static int val = 0;
   static int sum = 0;
   static int count = 0;
-  static int dcount = 0;
 
   //センサ情報を100点満点に換算
   float degital_val = (static_cast<float>(val)/4095)*100;
@@ -160,25 +177,23 @@ void loop() {
       Serial.println(flag);
       Serial.println(fcount);
     }
-    //dcount++;
   }
 
   // DeepSleep処理
-  // if(dcount >= 50){
-  //   Serial.println("Deep Sleep...");
-  //   // スリープモード移行（ボタンによる復帰のため復帰タイマー時間は０）
-  //   ESP.deepSleep( 10000000 );
-  //   // スリープモード移行用待機処理
-  //   delay( 1000 );
-  // }
+  //int nowData = digitalRead(GPIO_NUM_16);
+  // esp_sleep_enable_ext0_wakeup(GPIO_NUM_16, (nowData==0) ? 1 : 0 );
+  // esp_sleep_enable_timer_wakeup(60 * 1000 * 1000);  // wakeup every 1min
+  // esp_deep_sleep_start();
   
   /** BLE通信処理 **/
   //通知する値の変更
   if (deviceConnected) {    //接続中
+    //digitalWrite(LED, HIGH);
     sendvalue = val;
     pCharacteristic->setValue(sendvalue);   // においデータの送信
     if (!deviceConnected) ble();
   } else {                  //接続待ち
+    //digitalWrite(LED, LOW);
     pCharacteristic->setValue(failvalue);
   }
 
