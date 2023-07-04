@@ -9,8 +9,8 @@
 #define PIN_SENSOR 15  // D15(A1)
 #define PIN_INPUT 39  // Corresponds to Arduino Uno's A3
 
-// LEDのピン宣言
-//#define LED 14
+// 匂い測定ボタンのピン宣言
+#define PIN_SCAN 13
 
 // RGB LEDのピン宣言
 uint8_t ledR = 25;
@@ -89,15 +89,8 @@ void setup() {
   //Serial.begin(9600);
   Serial.begin(115200);
 
-  // 以下3つのconfigはデフォルト値なので省略しても良い
-  // Deep Sleep中にPull Up を保持するために
-  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
-  // // Deep Sleep中にメモリを保持するために
-  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
-  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_ON);
-
-  //deepsleep用ボタンをピンに対応する
-  //pinMode(GPIO_NUM_16, INPUT_PULLUP);
+  //　deepsleep用ボタンをピンに対応する
+  pinMode(GPIO_NUM_16, INPUT_PULLUP);
 
   // においセンサーを各ピンに対応する
   pinMode(PIN_HEATER, OUTPUT);
@@ -106,10 +99,10 @@ void setup() {
   digitalWrite(PIN_HEATER, HIGH);  // Heater Off
   digitalWrite(PIN_SENSOR, LOW);   // Sensor Pullup Off
 
-  //LEDをピンに対応する
-  //pinMode(LED, OUTPUT);
+  // 匂い測定ボタンをピンに対応する
+  pinMode(PIN_SCAN, INPUT_PULLUP);
 
-  // 12 kHz PWM, 8-bit 宣言
+  // RGB LED 12kHz PWM, 8-bit 宣言
   ledcSetup(1, 12000, 8);
   ledcSetup(2, 12000, 8);
   ledcSetup(3, 12000, 8);
@@ -125,7 +118,7 @@ void setup() {
 
 void loop() {
 
-  //int sleep = digitalRead( GPIO_NUM_16 );
+  int sleep = digitalRead( GPIO_NUM_16 );
 
   /** においセンサー処理 **/
   static bool flag = false;
@@ -142,10 +135,14 @@ void loop() {
   digitalWrite(PIN_HEATER, LOW);
   //ウォームアップ時間短縮
   //起動時に約30分の加熱時間を要する為無理やり短縮させている
-  //60点以上が5回続くと推奨値に戻す
-  if(degital_val < 60.0 && !flag) delay(100);
-  else delay(8);
-
+  //60点以上が数回続くと推奨値に戻す
+  if(flag){
+    delay(8);
+    rgb(0, 255, 0);
+  }else{
+    delay(100);
+    rgb(255, 0, 0);
+  }
   digitalWrite(PIN_HEATER, HIGH);   // Heater Off
   delay(237);                       // 次の処理のために間をあける
 
@@ -170,7 +167,7 @@ void loop() {
     if(!flag){
       if(smell >= 60){
         fcount++;
-        if (fcount > 5) flag = true;
+        if (fcount >= 3) flag = true;
       } else {
         fcount = 0;
       }
@@ -179,11 +176,16 @@ void loop() {
     }
   }
 
-  // DeepSleep処理
-  //int nowData = digitalRead(GPIO_NUM_16);
-  // esp_sleep_enable_ext0_wakeup(GPIO_NUM_16, (nowData==0) ? 1 : 0 );
-  // esp_sleep_enable_timer_wakeup(60 * 1000 * 1000);  // wakeup every 1min
-  // esp_deep_sleep_start();
+  int buttonState = digitalRead(PIN_SCAN);
+
+  if(buttonState == LOW){
+    rgb(0, 0, 255);
+    while(buttonState == LOW){
+      Serial.println("button push");
+      buttonState = digitalRead(PIN_SCAN);
+      delay(10);
+    }
+  }
   
   /** BLE通信処理 **/
   //通知する値の変更
