@@ -9,14 +9,16 @@
 #define PIN_SENSOR 15  // D15(A1)
 #define PIN_INPUT 39  // Corresponds to Arduino Uno's A3
 
-// 匂い測定ボタンのピン宣言
+// におい測定ボタンのピン宣言
 #define PIN_SCAN 13
+
+// においの測定設定
+float tolerance = 3.0;        //匂い測定の誤差
 
 // RGB LEDのピン宣言
 uint8_t ledR = 25;
 uint8_t ledG = 26;
 uint8_t ledB = 27;
-
 
 // BLEServerの設定
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -29,7 +31,8 @@ int sendvalue = 0;
 int failvalue = -1;
 
 
-// BLE callback
+
+// BLEコールバック関数
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
@@ -41,16 +44,36 @@ class MyServerCallbacks : public BLEServerCallbacks {
 };
 
 
-// RGB点灯の処理
-void rgb(int r, int g, int b) {
-  ledcWrite(1, r);
-  ledcWrite(2, g);
-  ledcWrite(3, b);
+
+/** 各セットアップ関数 **/
+void setupSmell(){    //においセンサ系のセットアップ
+  //　deepsleep用ボタンをピンに対応する
+  pinMode(GPIO_NUM_16, INPUT_PULLUP);
+
+  // においセンサーを各ピンに対応する
+  pinMode(PIN_HEATER, OUTPUT);
+  pinMode(PIN_SENSOR, OUTPUT);
+  
+  digitalWrite(PIN_HEATER, HIGH);  // Heater Off
+  digitalWrite(PIN_SENSOR, LOW);   // Sensor Pullup Off
+
+  // 匂い測定ボタンをピンに対応する
+  pinMode(PIN_SCAN, INPUT_PULLUP);
 }
 
+void setupLED(){      //LED系のセットアップ
+   // RGB LED 12kHz PWM, 8-bit 宣言
+  ledcSetup(1, 12000, 8);
+  ledcSetup(2, 12000, 8);
+  ledcSetup(3, 12000, 8);
 
-// BLE通信の処理全般
-void ble() {
+  // RGB LEDを各ピンに対応する
+  ledcAttachPin(ledR, 1);
+  ledcAttachPin(ledG, 2);
+  ledcAttachPin(ledB, 3);
+}
+
+void setupBLE() {     //BLE系のセットアップ
   // BLE Deviceの生成
   BLEDevice::init("Flesh AI");
 
@@ -84,51 +107,33 @@ void ble() {
 }
 
 
+
 void setup() {
-  // シリアルポート宣言
-  //Serial.begin(9600);
-  Serial.begin(115200);
+  Serial.begin(115200);       // シリアルポート宣言
 
-  //　deepsleep用ボタンをピンに対応する
-  pinMode(GPIO_NUM_16, INPUT_PULLUP);
+  setupSmell();
 
-  // においセンサーを各ピンに対応する
-  pinMode(PIN_HEATER, OUTPUT);
-  pinMode(PIN_SENSOR, OUTPUT);
-  
-  digitalWrite(PIN_HEATER, HIGH);  // Heater Off
-  digitalWrite(PIN_SENSOR, LOW);   // Sensor Pullup Off
+  setupLED();
 
-  // 匂い測定ボタンをピンに対応する
-  pinMode(PIN_SCAN, INPUT_PULLUP);
-
-  // RGB LED 12kHz PWM, 8-bit 宣言
-  ledcSetup(1, 12000, 8);
-  ledcSetup(2, 12000, 8);
-  ledcSetup(3, 12000, 8);
-
-  // RGB LEDを各ピンに対応する
-  ledcAttachPin(ledR, 1);
-  ledcAttachPin(ledG, 2);
-  ledcAttachPin(ledB, 3);
-
-  ble();  //BLE処理全般を任せる
+  setupBLE();
 }
 
 
-void loop() {
 
-  int sleep = digitalRead( GPIO_NUM_16 );
+/** 各処理関数 **/
+void rgb(int r, int g, int b) {         // RGB点灯の処理
+  ledcWrite(1, r);
+  ledcWrite(2, g);
+  ledcWrite(3, b);
+}
 
+float smell_read(bool smellflg){        // 匂い測定処理
   /** においセンサー処理 **/
-  static bool flag = false;
+  static bool warmflg = false;
   static int fcount = 0;
   static int val = 0;
   static int sum = 0;
   static int count = 0;
-
-  //センサ情報を100点満点に換算
-  float degital_val = (static_cast<float>(val)/4095)*100;
 
   //ヒーターの加熱処理
   //においセンサ内の状態をリセットするために加熱処理を施す
@@ -136,9 +141,10 @@ void loop() {
   //ウォームアップ時間短縮
   //起動時に約30分の加熱時間を要する為無理やり短縮させている
   //60点以上が数回続くと推奨値に戻す
-  if(flag){
+  if(warmflg){
     delay(8);
-    rgb(0, 255, 0);
+    if(smellflg) rgb(0, 0, 255);
+    else rgb(0, 255, 0);
   }else{
     delay(100);
     rgb(255, 0, 0);
@@ -161,39 +167,59 @@ void loop() {
   if (count == 10) {
     // においセンサの取得平均値を100点変換して表示する
     float smell = (static_cast<float>(sum/count)/4095)*100;
-    Serial.println(smell);
+    if(smellflg) smell_judge(smell);
     sum = 0;
     count = 0;
-    if(!flag){
+    if(!warmflg){
       if(smell >= 60){
         fcount++;
-        if (fcount >= 3) flag = true;
+        if (fcount >= 3) warmflg = true;
       } else {
         fcount = 0;
       }
-      Serial.println(flag);
+      Serial.println(warmflg);
       Serial.println(fcount);
     }
   }
 
+  return val;
+}
+
+void smell_judge(float smell){
+  Serial.print("total: ");
+  Serial.println(smell);
+}
+
+
+
+void loop() {
+  float result = 0.0;
+
+  int sleep = digitalRead( GPIO_NUM_16 );
+
   int buttonState = digitalRead(PIN_SCAN);
 
+  smell_read(false);
+
   if(buttonState == LOW){
-    rgb(0, 0, 255);
+    Serial.println("button push");
     while(buttonState == LOW){
-      Serial.println("button push");
+      result = smell_read(true);
+      Serial.print("smell: ");
+      Serial.println(result);
       buttonState = digitalRead(PIN_SCAN);
       delay(10);
     }
+    Serial.println("button no push");
   }
-  
+
   /** BLE通信処理 **/
   //通知する値の変更
   if (deviceConnected) {    //接続中
     //digitalWrite(LED, HIGH);
-    sendvalue = val;
+    if(result != 0.0) sendvalue = result;
     pCharacteristic->setValue(sendvalue);   // においデータの送信
-    if (!deviceConnected) ble();
+    if (!deviceConnected) setupBLE();
   } else {                  //接続待ち
     //digitalWrite(LED, LOW);
     pCharacteristic->setValue(failvalue);
