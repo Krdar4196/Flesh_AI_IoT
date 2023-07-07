@@ -13,6 +13,7 @@
 #define PIN_SCAN 13
 
 // においの測定設定
+float standard = 60.0;        //においセンサの基準値
 float tolerance = 3.0;        //匂い測定の誤差
 
 // RGB LEDのピン宣言
@@ -24,11 +25,12 @@ uint8_t ledB = 27;
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 BLEServer* pServer = NULL;
+BLEService* pService = NULL;
 BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
-int sendvalue = 0;
 int failvalue = -1;
+TaskHandle_t BLEHandle = NULL;
 
 
 
@@ -82,7 +84,7 @@ void setupBLE() {     //BLE系のセットアップ
   pServer->setCallbacks(new MyServerCallbacks());
 
   // BLE Serviceの生成
-  BLEService* pService = pServer->createService(SERVICE_UUID);
+  pService = pServer->createService(SERVICE_UUID);
 
   // BLE Characteristicの生成
   pCharacteristic = pService->createCharacteristic(
@@ -115,7 +117,7 @@ void setup() {
 
   setupLED();
 
-  setupBLE();
+  xTaskCreate(Task2, "Task2", 10000, NULL, 2, NULL);
 }
 
 
@@ -127,7 +129,7 @@ void rgb(int r, int g, int b) {         // RGB点灯の処理
   ledcWrite(3, b);
 }
 
-float smell_read(bool smellflg){        // 匂い測定処理
+float smell_read(bool smellflg){        // におい測定処理
   /** においセンサー処理 **/
   static bool warmflg = false;
   static int fcount = 0;
@@ -185,13 +187,30 @@ float smell_read(bool smellflg){        // 匂い測定処理
   return val;
 }
 
-void smell_judge(float smell){
+void smell_judge(float smell){          // におい値を元に判定する
   Serial.print("total: ");
   Serial.println(smell);
+  delay(10);
+  if (BLEHandle != NULL) vTaskDelete(BLEHandle);
+  xTaskCreate(BLEConnectTask, "BLEConnectTask", 30000, &smell, 1, &BLEHandle);
 }
 
 
 
+void finishBLE(){
+  // BLE Serviceの削除
+  if (pServer) {
+    pServer->removeService(pService);
+    delete pService;
+    pService = nullptr;
+  }
+  // BLE Deviceの削除
+  BLEDevice::deinit();
+}
+
+
+
+/** 各タスク関数 **/
 void loop() {
   float result = 0.0;
 
@@ -212,30 +231,52 @@ void loop() {
     }
     Serial.println("button no push");
   }
+}
 
-  /** BLE通信処理 **/
-  //通知する値の変更
-  if (deviceConnected) {    //接続中
-    //digitalWrite(LED, HIGH);
-    if(result != 0.0) sendvalue = result;
-    pCharacteristic->setValue(sendvalue);   // においデータの送信
-    if (!deviceConnected) setupBLE();
-  } else {                  //接続待ち
-    //digitalWrite(LED, LOW);
-    pCharacteristic->setValue(failvalue);
+void BLEConnectTask(void *pvParameters) {
+  delay(100);
+  Serial.println("bletask");
+  float sendvalue = *(float*)pvParameters;
+  setupBLE();
+  for (;;) {
+    /** BLE通信処理 **/
+    //通知する値の変更
+    if (deviceConnected) {    //接続中
+      Serial.println("send");
+      pCharacteristic->setValue(sendvalue);   // においデータの送信
+      if (!deviceConnected) {
+        setupBLE();
+      }
+      //通知を送る
+      pCharacteristic->notify();
+      delay(10000);
+      BLEDevice::getAdvertising()->stop();
+
+      //BLE通信終了
+      finishBLE();
+    } else {
+      //接続待ち 
+    }
+
+    //通信が切断されたときの処理
+    if (!deviceConnected && oldDeviceConnected) {
+      Serial.println("disconnect");
+      delay(500);
+      pServer->startAdvertising();
+      oldDeviceConnected = deviceConnected;
+    }
+
+    if (deviceConnected && !oldDeviceConnected) {
+      oldDeviceConnected = deviceConnected;
+    }
+    delay(10);
   }
+}
 
-  //通知を送る
-  pCharacteristic->notify();
-
-  //通信が切断されたときの処理
-  if (!deviceConnected && oldDeviceConnected) {
-    delay(500);
-    pServer->startAdvertising();
-    oldDeviceConnected = deviceConnected;
-  }
-
-  if (deviceConnected && !oldDeviceConnected) {
-    oldDeviceConnected = deviceConnected;
+void Task2(void *pvParameters) {
+  (void) pvParameters;
+  for (;;) {
+    // ここにタスク2のコードを書く
+    vTaskDelay(2000 / portTICK_PERIOD_MS); // 2秒の遅延
   }
 }
